@@ -43,7 +43,7 @@ interface SidebarProps {
 interface SidebarTooltipProps {
   label: string;
   show: boolean;
-  children: React.ReactElement;
+  children: React.ReactElement<any>;
 }
 
 const SidebarTooltip: React.FC<SidebarTooltipProps> = ({ label, show, children }) => {

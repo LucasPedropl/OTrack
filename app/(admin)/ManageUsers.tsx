@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { User, Project } from '../../types';
 import { getUsers, createUser, deleteUser, getProjects, updateUser } from '../../services/firestoreService';
+import { useAuth } from '../../services/authContext';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -10,6 +11,7 @@ import Modal from '../../components/ui/Modal';
 import { UserPlus, Trash2, Shield, User as UserIcon, Pencil, HardHat } from 'lucide-react';
 
 const ManageUsers: React.FC = () => {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,11 @@ const ManageUsers: React.FC = () => {
   };
 
   const handleDeleteUser = async (uid: string) => {
+    if (currentUser?.uid === uid) {
+      alert("Você não pode excluir sua própria conta.");
+      return;
+    }
+
     if(window.confirm('Remover este usuário?')) {
       await deleteUser(uid);
       fetchData();
@@ -113,7 +120,10 @@ const ManageUsers: React.FC = () => {
                          {type === 'admin' ? <Shield size={20}/> : <HardHat size={20} />}
                       </div>
                       <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">{u.name}</div>
+                        <div className="text-sm font-medium text-gray-900">
+                          {u.name} 
+                          {currentUser?.uid === u.uid && <span className="ml-2 text-xs text-gray-400 font-normal">(Você)</span>}
+                        </div>
                         <div className="text-sm text-gray-500">{u.email}</div>
                       </div>
                     </div>
@@ -139,13 +149,24 @@ const ManageUsers: React.FC = () => {
                       >
                         <Pencil size={18} />
                       </button>
-                      <button 
-                        onClick={() => handleDeleteUser(u.uid)}
-                        className="text-gray-400 hover:text-red-600 transition-colors"
-                        title="Excluir"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      
+                      {currentUser?.uid !== u.uid ? (
+                        <button 
+                          onClick={() => handleDeleteUser(u.uid)}
+                          className="text-gray-400 hover:text-red-600 transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      ) : (
+                        <button 
+                          disabled
+                          className="text-gray-200 cursor-not-allowed"
+                          title="Você não pode excluir sua própria conta"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
