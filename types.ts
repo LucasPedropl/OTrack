@@ -46,6 +46,7 @@ export interface InventoryItem {
   unit: string; 
   minQuantity?: number;
   category: string;
+  category2?: string; // Subcategoria ou detalhe adicional
   lastUpdated: number;
   lastUpdatedBy: string;
   unitPrice?: number;

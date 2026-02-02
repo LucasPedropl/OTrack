@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Minus, Search, Package, LayoutGrid, List, FileSpreadsheet, Pencil, Trash2, Check, DollarSign } from 'lucide-react';
+import { ArrowLeft, Plus, Minus, Search, Package, LayoutGrid, List, FileSpreadsheet, Pencil, Trash2, Check, DollarSign, Filter, X, Tag } from 'lucide-react';
 import { useAuth } from '../services/authContext';
 import { getInventory, getProjectById, addInventoryItem, updateInventoryQuantity, deleteInventoryItem, getSupplies, updateInventoryItem, addSupply } from '../services/firestoreService';
 import { exportProjectInventoryToExcel } from '../services/excelService';
@@ -21,8 +21,20 @@ const ProjectInventory: React.FC = () => {
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // UI State
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  // UI State - Initialize from localStorage or default to 'list'
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    const savedMode = localStorage.getItem('otrack_inventory_view_mode');
+    return (savedMode === 'grid' || savedMode === 'list') ? savedMode : 'list';
+  });
+
+  // Filters State
+  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  
+  // Persist view mode preference
+  useEffect(() => {
+    localStorage.setItem('otrack_inventory_view_mode', viewMode);
+  }, [viewMode]);
   
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -33,11 +45,11 @@ const ProjectInventory: React.FC = () => {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   
   // Form State - Add Item
-  const [newItem, setNewItem] = useState({ name: '', quantity: 0, unit: '', category: '', price: '' });
+  const [newItem, setNewItem] = useState({ name: '', quantity: 0, unit: '', category: '', category2: '', price: '' });
   const [selectedSupply, setSelectedSupply] = useState<Supply | null>(null);
   
   // Form State - Edit Item
-  const [editItemData, setEditItemData] = useState({ name: '', category: '', unitPrice: '' });
+  const [editItemData, setEditItemData] = useState({ name: '', category: '', category2: '', unitPrice: '' });
 
   // Form State - Create New Supply (Nested)
   const [newSupplyData, setNewSupplyData] = useState({ name: '', unit: '', category: '', price: '' });
@@ -46,7 +58,7 @@ const ProjectInventory: React.FC = () => {
   const [updateAmount, setUpdateAmount] = useState<number>(0);
   const [updateType, setUpdateType] = useState<'in' | 'out'>('in');
 
-  // Search/Combobox State
+  // Search/Combobox State (For Adding Items)
   const [supplySearchTerm, setSupplySearchTerm] = useState('');
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
   const comboboxRef = useRef<HTMLDivElement>(null);
@@ -80,6 +92,15 @@ const ProjectInventory: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // --- Filtering Logic for Inventory Display ---
+  const uniqueCategories = Array.from(new Set(inventory.map(item => item.category))).filter(Boolean).sort();
+
+  const filteredInventory = inventory.filter(item => {
+    const matchesSearch = item.name.toLowerCase().includes(inventorySearchTerm.toLowerCase());
+    const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
   const handleSupplySelect = (supply: Supply) => {
     setSelectedSupply(supply);
     setSupplySearchTerm(supply.name);
@@ -88,6 +109,7 @@ const ProjectInventory: React.FC = () => {
       name: supply.name,
       unit: supply.unit,
       category: supply.category,
+      category2: '', // Reset secondary category as it's specific to the project item
       price: supply.price ? supply.price.toString() : ''
     });
     setIsComboboxOpen(false);
@@ -134,7 +156,8 @@ const ProjectInventory: React.FC = () => {
         projectId,
         name: selectedSupply.name,
         unit: selectedSupply.unit,
-        category: selectedSupply.category,
+        category: selectedSupply.category, // Categoria do Insumo (Padrão)
+        category2: newItem.category2, // Subcategoria (Específica da Obra)
         quantity: newItem.quantity,
         unitPrice: newItem.price ? parseFloat(newItem.price) : undefined,
         lastUpdated: Date.now(),
@@ -146,7 +169,7 @@ const ProjectInventory: React.FC = () => {
 
     setIsAddModalOpen(false);
     // Reset form
-    setNewItem({ name: '', quantity: 0, unit: '', category: '', price: '' });
+    setNewItem({ name: '', quantity: 0, unit: '', category: '', category2: '', price: '' });
     setSelectedSupply(null);
     setSupplySearchTerm('');
     fetchDetails();
@@ -194,6 +217,7 @@ const ProjectInventory: React.FC = () => {
     setEditItemData({
       name: item.name,
       category: item.category,
+      category2: item.category2 || '',
       unitPrice: item.unitPrice ? item.unitPrice.toString() : ''
     });
     setIsEditItemModalOpen(true);
@@ -204,6 +228,7 @@ const ProjectInventory: React.FC = () => {
     await updateInventoryItem(selectedItem.id, {
       name: editItemData.name,
       category: editItemData.category,
+      category2: editItemData.category2,
       unitPrice: editItemData.unitPrice ? parseFloat(editItemData.unitPrice) : undefined
     });
     setIsEditItemModalOpen(false);
@@ -281,17 +306,64 @@ const ProjectInventory: React.FC = () => {
         </div>
       </div>
 
+      {/* Filters Toolbar */}
+      <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col md:flex-row gap-4 items-center">
+         <div className="relative flex-1 w-full">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+            <input 
+              type="text"
+              placeholder="Pesquisar item..."
+              value={inventorySearchTerm}
+              onChange={(e) => setInventorySearchTerm(e.target.value)}
+              className="pl-9 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            {inventorySearchTerm && (
+              <button 
+                onClick={() => setInventorySearchTerm('')}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+              >
+                <X size={14} />
+              </button>
+            )}
+         </div>
+         
+         <div className="w-full md:w-64 relative">
+            <Filter className="absolute left-3 top-2.5 h-4 w-4 text-gray-400 pointer-events-none" />
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="pl-9 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
+            >
+               <option value="all">Todas as Categorias</option>
+               {uniqueCategories.map(cat => (
+                 <option key={cat} value={cat}>{cat}</option>
+               ))}
+            </select>
+            <div className="absolute right-3 top-3 pointer-events-none">
+               <div className="border-[4px] border-transparent border-t-gray-500"></div>
+            </div>
+         </div>
+      </div>
+
       {/* Inventory Display */}
       {inventory.length === 0 ? (
         <div className="col-span-full py-12 text-center border-2 border-dashed border-gray-200 rounded-lg">
           <p className="text-gray-500">Nenhum item no estoque desta obra.</p>
+        </div>
+      ) : filteredInventory.length === 0 ? (
+        <div className="col-span-full py-12 text-center bg-gray-50 rounded-lg">
+          <Search className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+          <p className="text-gray-500">Nenhum item encontrado com os filtros atuais.</p>
+          <Button variant="link" onClick={() => { setInventorySearchTerm(''); setCategoryFilter('all'); }}>
+             Limpar Filtros
+          </Button>
         </div>
       ) : (
         <>
           {viewMode === 'grid' ? (
             // GRID VIEW
             <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
-              {inventory.map((item) => (
+              {filteredInventory.map((item) => (
                 <Card key={item.id} className="relative overflow-hidden group">
                   <div className="flex justify-between items-start mb-4">
                       <div>
@@ -300,9 +372,14 @@ const ProjectInventory: React.FC = () => {
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded inline-block w-fit">
                             {item.category}
                           </span>
+                          {item.category2 && (
+                             <span className="text-xs text-gray-500 flex items-center gap-1 mt-0.5 ml-1">
+                               <Tag size={10} /> {item.category2}
+                             </span>
+                          )}
                           {item.unitPrice && (
-                            <span className="text-xs text-gray-500">
-                              {formatCurrency(item.unitPrice)} / {item.unit}
+                            <span className="text-xs text-gray-500 mt-1">
+                              Pago: {formatCurrency(item.unitPrice)} / {item.unit}
                             </span>
                           )}
                         </div>
@@ -363,23 +440,30 @@ const ProjectInventory: React.FC = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor Unit.</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categorias</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor Pago (Unit)</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qtd Atual</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Última Att</th>
                       <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {inventory.map((item) => (
+                    {filteredInventory.map((item) => (
                       <tr key={item.id} className="hover:bg-gray-50 group">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{item.name}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            {item.category}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 w-fit">
+                               {item.category}
+                             </span>
+                             {item.category2 && (
+                               <span className="text-xs text-gray-500 ml-1">
+                                 ↳ {item.category2}
+                               </span>
+                             )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {formatCurrency(item.unitPrice)}
@@ -514,12 +598,26 @@ const ProjectInventory: React.FC = () => {
             )}
             
             {selectedSupply && (
-              <div className="mt-2 text-xs text-green-600 flex items-center bg-green-50 p-2 rounded border border-green-100">
-                <Check size={12} className="mr-1" />
-                Selecionado: <b>{selectedSupply.name}</b> ({selectedSupply.unit})
+              <div className="mt-2 p-2 rounded border border-blue-100 bg-blue-50">
+                <div className="text-xs text-blue-800 flex items-center mb-1">
+                  <Check size={12} className="mr-1" />
+                  Insumo Selecionado: <b>{selectedSupply.name}</b> ({selectedSupply.unit})
+                </div>
+                <div className="text-xs text-gray-500">
+                  Preço Base (Catálogo): {selectedSupply.price ? formatCurrency(selectedSupply.price) : 'Não definido'}
+                </div>
               </div>
             )}
           </div>
+
+          {selectedSupply && (
+             <Input 
+                label="Categoria (Do Insumo)" 
+                value={selectedSupply.category} 
+                disabled 
+                className="bg-gray-100"
+             />
+          )}
 
           <div className="grid grid-cols-2 gap-4">
              <Input 
@@ -528,20 +626,28 @@ const ProjectInventory: React.FC = () => {
                value={newItem.quantity} 
                onChange={e => setNewItem({...newItem, quantity: Number(e.target.value)})}
              />
-             <div className="relative">
-                <Input 
-                  label="Valor Unitário (Opcional)" 
-                  type="number"
-                  step="0.01" 
-                  placeholder="0.00"
-                  className="pl-8"
-                  value={newItem.price} 
-                  onChange={e => setNewItem({...newItem, price: e.target.value})}
-                />
-                <div className="absolute left-3 top-[34px] text-gray-400 pointer-events-none">
-                  <DollarSign size={14} />
-                </div>
-             </div>
+             <Input 
+               label="Subcategoria / Detalhe" 
+               placeholder="Ex: Marca X, Sala 1"
+               value={newItem.category2} 
+               onChange={e => setNewItem({...newItem, category2: e.target.value})}
+             />
+          </div>
+          
+          <div className="relative">
+            <Input 
+              label="Valor Unitário Real (Nota Fiscal)" 
+              type="number"
+              step="0.01" 
+              placeholder="0.00"
+              className="pl-8"
+              value={newItem.price} 
+              onChange={e => setNewItem({...newItem, price: e.target.value})}
+            />
+            <div className="absolute left-3 top-[34px] text-gray-400 pointer-events-none">
+              <DollarSign size={14} />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Este é o valor efetivamente pago pelo item nesta obra.</p>
           </div>
         </div>
       </Modal>
@@ -660,14 +766,21 @@ const ProjectInventory: React.FC = () => {
              value={editItemData.name} 
              onChange={e => setEditItemData({...editItemData, name: e.target.value})} 
           />
-          <Input 
-             label="Categoria" 
-             value={editItemData.category} 
-             onChange={e => setEditItemData({...editItemData, category: e.target.value})} 
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input 
+               label="Categoria Principal" 
+               value={editItemData.category} 
+               onChange={e => setEditItemData({...editItemData, category: e.target.value})} 
+            />
+            <Input 
+               label="Subcategoria / Detalhe" 
+               value={editItemData.category2} 
+               onChange={e => setEditItemData({...editItemData, category2: e.target.value})} 
+            />
+          </div>
           <div className="relative">
              <Input 
-               label="Valor Unitário" 
+               label="Valor Unitário (Pago)" 
                type="number"
                step="0.01"
                className="pl-8"
