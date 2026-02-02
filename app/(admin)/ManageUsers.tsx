@@ -174,7 +174,8 @@ const ManageUsers: React.FC = () => {
               ) : (
                 users.map((u) => {
                    const roleName = u.role === 'admin' && !u.roleId ? 'Super Admin (Legacy)' : getRoleName(u.roleId);
-                   
+                   const assignedCount = u.assignedProjects?.length || 0;
+
                    return (
                     <tr key={u.uid} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -200,9 +201,9 @@ const ManageUsers: React.FC = () => {
                         <div className="text-sm text-gray-500 max-w-xs truncate">
                            {roles.find(r => r.id === u.roleId)?.permissions.access_all_projects || u.role === 'admin'
                                ? <span className="text-green-600 font-medium text-xs">Acesso Total</span>
-                               : u.assignedProjects.length > 0 
+                               : assignedCount > 0 
                                  ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                                     {u.assignedProjects.length} obra(s) vinculada(s)
+                                     {assignedCount} obra(s) vinculada(s)
                                    </span>
                                  : <span className="text-red-400 text-xs">Nenhuma obra vinculada</span>
                            }

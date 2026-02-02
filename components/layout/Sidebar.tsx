@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { 
-  LayoutDashboard, Users, FolderKanban, X, Box, ChevronLeft, ChevronRight, 
+  LayoutDashboard, Users, FolderKanban, X, Box, ChevronLeft, ChevronRight, ChevronDown,
   Building2, History, Settings, MoreHorizontal, Pencil, Download, Trash2, GripVertical,
   PackageOpen, Shield
 } from 'lucide-react';
@@ -178,6 +178,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     return savedState === 'true';
   });
 
+  const [isUserGroupOpen, setIsUserGroupOpen] = useState(() => {
+     // Keep group open if current path is inside it
+     return location.pathname.includes('/admin/users') || location.pathname.includes('/admin/roles');
+  });
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [menuConfig, setMenuConfig] = useState<{ isOpen: boolean; x: number; y: number; project: Project | null; }>({ isOpen: false, x: 0, y: 0, project: null });
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -196,6 +201,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       localStorage.setItem('otrack_sidebar_collapsed', String(newState));
       return newState;
     });
+  };
+
+  const toggleUserGroup = () => {
+    if (isCollapsed) {
+      setIsCollapsed(false);
+      localStorage.setItem('otrack_sidebar_collapsed', 'false');
+      setIsUserGroupOpen(true);
+    } else {
+      setIsUserGroupOpen(prev => !prev);
+    }
   };
 
   useEffect(() => {
@@ -299,31 +314,29 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     triggerUpdate();
   };
 
-  const allAdminLinks = [
+  // --- Links Definitions ---
+
+  const singleAdminLinks = [
     { href: '/admin/dashboard', label: 'Painel Geral', icon: LayoutDashboard, permission: 'view_dashboard' },
-    { href: '/admin/users', label: 'Gerenciar Usuários', icon: Users, permission: 'manage_users' },
-    { href: '/admin/roles', label: 'Tipos de Usuário', icon: Shield, permission: 'manage_roles' },
     { href: '/admin/supplies', label: 'Insumos', icon: PackageOpen, permission: 'manage_supplies' },
     { href: '/admin/history', label: 'Histórico Global', icon: History, permission: 'view_dashboard' },
   ];
 
-  const userLinks = [
+  const userGroupLinks = [
+    { href: '/admin/users', label: 'Gerenciar Usuários', icon: Users, permission: 'manage_users' },
+    { href: '/admin/roles', label: 'Tipos de Usuário', icon: Shield, permission: 'manage_roles' },
+  ];
+
+  const standardUserLinks = [
     { href: '/user/dashboard', label: 'Minhas Obras', icon: FolderKanban },
     { href: '/user/history', label: 'Meu Histórico', icon: History },
   ];
 
-  let mainLinks = [];
-
-  // Filter admin links based on permissions
-  if (checkPermission('view_dashboard')) {
-    mainLinks = allAdminLinks.filter(link => 
-      // If link has a specific permission requirement, check it. Otherwise allow.
-      // @ts-ignore
-      link.permission ? checkPermission(link.permission) : true
-    );
-  } else {
-    mainLinks = userLinks;
-  }
+  // Logic to determine what to render
+  const isSuperAdminOrAdmin = checkPermission('view_dashboard');
+  
+  // Calculate visibility for User Group: Show if user has ANY permission in the group
+  const showUserGroup = isSuperAdminOrAdmin && userGroupLinks.some(link => checkPermission(link.permission as any));
 
   return (
     <>
@@ -361,15 +374,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
         <div className="flex flex-col flex-1 overflow-hidden pt-6">
           <nav className="space-y-0.5 px-2 flex-shrink-0 mb-6">
-            {mainLinks.map((link) => (
+            
+            {/* Standard User Links (if not admin) */}
+            {!isSuperAdminOrAdmin && standardUserLinks.map(link => (
               <SidebarTooltip key={link.href} label={link.label} show={isCollapsed}>
                 <Link
                   to={link.href}
                   onClick={onClose}
                   className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors ${
-                    path === link.href 
-                    ? 'bg-gray-100 text-gray-900' 
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    path === link.href ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   } ${isCollapsed ? 'justify-center' : ''}`}
                 >
                   <link.icon size={18} className="shrink-0" />
@@ -379,6 +392,97 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 </Link>
               </SidebarTooltip>
             ))}
+
+            {/* Admin Links */}
+            {isSuperAdminOrAdmin && (
+              <>
+                 {/* Dashboard (First item usually) */}
+                 {singleAdminLinks.slice(0, 1).map(link => (
+                    checkPermission(link.permission as any) && (
+                      <SidebarTooltip key={link.href} label={link.label} show={isCollapsed}>
+                        <Link
+                          to={link.href}
+                          onClick={onClose}
+                          className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors ${
+                            path === link.href ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                          } ${isCollapsed ? 'justify-center' : ''}`}
+                        >
+                          <link.icon size={18} className="shrink-0" />
+                          <span className={`overflow-hidden transition-all duration-300 whitespace-nowrap ${isCollapsed ? 'w-0 opacity-0 hidden' : 'w-auto opacity-100'}`}>
+                            {link.label}
+                          </span>
+                        </Link>
+                      </SidebarTooltip>
+                    )
+                 ))}
+
+                 {/* Users Group */}
+                 {showUserGroup && (
+                    <div className="space-y-0.5">
+                       <SidebarTooltip label="Usuários" show={isCollapsed}>
+                         <button
+                           onClick={toggleUserGroup}
+                           className={`w-full flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900 ${isCollapsed ? 'justify-center' : 'justify-between'}`}
+                         >
+                            <div className="flex items-center gap-3">
+                              <Users size={18} className="shrink-0" />
+                              <span className={`overflow-hidden transition-all duration-300 whitespace-nowrap ${isCollapsed ? 'w-0 opacity-0 hidden' : 'w-auto opacity-100'}`}>
+                                Usuários
+                              </span>
+                            </div>
+                            {!isCollapsed && (
+                              <ChevronDown 
+                                size={14} 
+                                className={`transition-transform duration-200 ${isUserGroupOpen ? 'transform rotate-180' : ''}`} 
+                              />
+                            )}
+                         </button>
+                       </SidebarTooltip>
+                       
+                       {/* Children Items */}
+                       {isUserGroupOpen && !isCollapsed && (
+                         <div className="space-y-0.5 animate-in slide-in-from-top-2 duration-200">
+                            {userGroupLinks.map(link => (
+                               checkPermission(link.permission as any) && (
+                                 <Link
+                                   key={link.href}
+                                   to={link.href}
+                                   onClick={onClose}
+                                   className={`flex items-center gap-3 rounded-md pl-11 pr-2 py-2 text-sm font-medium transition-colors ${
+                                      path === link.href ? 'text-primary bg-primary/5' : 'text-gray-500 hover:text-gray-900'
+                                   }`}
+                                 >
+                                    <span className="truncate">{link.label}</span>
+                                 </Link>
+                               )
+                            ))}
+                         </div>
+                       )}
+                    </div>
+                 )}
+
+                 {/* Remaining Admin Links */}
+                 {singleAdminLinks.slice(1).map(link => (
+                    checkPermission(link.permission as any) && (
+                      <SidebarTooltip key={link.href} label={link.label} show={isCollapsed}>
+                        <Link
+                          to={link.href}
+                          onClick={onClose}
+                          className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors ${
+                            path === link.href ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                          } ${isCollapsed ? 'justify-center' : ''}`}
+                        >
+                          <link.icon size={18} className="shrink-0" />
+                          <span className={`overflow-hidden transition-all duration-300 whitespace-nowrap ${isCollapsed ? 'w-0 opacity-0 hidden' : 'w-auto opacity-100'}`}>
+                            {link.label}
+                          </span>
+                        </Link>
+                      </SidebarTooltip>
+                    )
+                 ))}
+              </>
+            )}
+
           </nav>
 
           <div className="px-4 pb-2 flex-shrink-0">

@@ -13,7 +13,7 @@ import Card from '../components/ui/Card';
 
 const ProjectInventory: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
   const navigate = useNavigate();
   
   const [project, setProject] = useState<Project | null>(null);
@@ -188,7 +188,8 @@ const ProjectInventory: React.FC = () => {
     fetchDetails();
   };
 
-  const handleEditItemOpen = (item: InventoryItem) => {
+  const handleEditItemOpen = (item: InventoryItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setSelectedItem(item);
     setEditItemData({
       name: item.name,
@@ -209,10 +210,16 @@ const ProjectInventory: React.FC = () => {
     fetchDetails();
   };
 
-  const handleDeleteItem = async (item: InventoryItem) => {
+  const handleDeleteItem = async (item: InventoryItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if(window.confirm(`Tem certeza que deseja remover "${item.name}" do estoque desta obra?`)) {
-      await deleteInventoryItem(item.id);
-      fetchDetails();
+      try {
+        await deleteInventoryItem(item.id);
+        fetchDetails();
+      } catch (err) {
+        console.error("Erro ao excluir:", err);
+        alert("Ocorreu um erro ao tentar excluir o item.");
+      }
     }
   };
 
@@ -266,9 +273,11 @@ const ProjectInventory: React.FC = () => {
             </button>
           </div>
 
-          <Button onClick={() => setIsAddModalOpen(true)}>
-            <Plus size={18} className="mr-2" /> Novo Item
-          </Button>
+          {checkPermission('inventory_add') && (
+            <Button onClick={() => setIsAddModalOpen(true)}>
+              <Plus size={18} className="mr-2" /> Novo Item
+            </Button>
+          )}
         </div>
       </div>
 
@@ -310,6 +319,7 @@ const ProjectInventory: React.FC = () => {
                       variant="outline" 
                       className="flex-1 border-red-200 text-red-700 hover:bg-red-50"
                       onClick={() => openUpdateModal(item, 'out')}
+                      disabled={!checkPermission('inventory_edit')}
                     >
                       <Minus size={16} className="mr-1" /> Saída
                     </Button>
@@ -317,20 +327,27 @@ const ProjectInventory: React.FC = () => {
                       variant="outline" 
                       className="flex-1 border-green-200 text-green-700 hover:bg-green-50"
                       onClick={() => openUpdateModal(item, 'in')}
+                      disabled={!checkPermission('inventory_edit')}
                     >
                       <Plus size={16} className="mr-1" /> Entrada
                     </Button>
                   </div>
                   
                   {/* Action Buttons (Edit/Delete) */}
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 p-1 rounded backdrop-blur-sm">
-                    <button onClick={() => handleEditItemOpen(item)} className="p-1.5 text-gray-500 hover:text-primary hover:bg-gray-100 rounded">
-                      <Pencil size={14} />
-                    </button>
-                    <button onClick={() => handleDeleteItem(item)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  {(checkPermission('inventory_edit') || checkPermission('inventory_delete')) && (
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 p-1 rounded backdrop-blur-sm">
+                      {checkPermission('inventory_edit') && (
+                        <button onClick={(e) => handleEditItemOpen(item, e)} className="p-1.5 text-gray-500 hover:text-primary hover:bg-gray-100 rounded">
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                      {checkPermission('inventory_delete') && (
+                        <button onClick={(e) => handleDeleteItem(item, e)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mt-3 text-xs text-gray-400 text-center">
                     Última att: {new Date(item.lastUpdated).toLocaleDateString()}
@@ -377,25 +394,31 @@ const ProjectInventory: React.FC = () => {
                           <div className="flex justify-center items-center space-x-2">
                              {/* Edit/Delete for List View */}
                              <div className="flex items-center mr-2 border-r border-gray-200 pr-2 space-x-1">
-                                <button onClick={() => handleEditItemOpen(item)} className="p-1 text-gray-400 hover:text-primary rounded">
-                                  <Pencil size={14} />
-                                </button>
-                                <button onClick={() => handleDeleteItem(item)} className="p-1 text-gray-400 hover:text-red-600 rounded">
-                                  <Trash2 size={14} />
-                                </button>
+                                {checkPermission('inventory_edit') && (
+                                  <button onClick={(e) => handleEditItemOpen(item, e)} className="p-1 text-gray-400 hover:text-primary rounded">
+                                    <Pencil size={14} />
+                                  </button>
+                                )}
+                                {checkPermission('inventory_delete') && (
+                                  <button onClick={(e) => handleDeleteItem(item, e)} className="p-1 text-gray-400 hover:text-red-600 rounded">
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                              </div>
 
                             <button 
                               onClick={() => openUpdateModal(item, 'out')}
-                              className="p-1 rounded-full text-red-600 hover:bg-red-50 border border-red-200"
+                              className={`p-1 rounded-full border ${!checkPermission('inventory_edit') ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'text-red-600 hover:bg-red-50 border-red-200'}`}
                               title="Saída"
+                              disabled={!checkPermission('inventory_edit')}
                             >
                               <Minus size={14} />
                             </button>
                             <button 
                               onClick={() => openUpdateModal(item, 'in')}
-                              className="p-1 rounded-full text-green-600 hover:bg-green-50 border border-green-200"
+                              className={`p-1 rounded-full border ${!checkPermission('inventory_edit') ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'text-green-600 hover:bg-green-50 border-green-200'}`}
                               title="Entrada"
+                              disabled={!checkPermission('inventory_edit')}
                             >
                               <Plus size={14} />
                             </button>
@@ -458,7 +481,7 @@ const ProjectInventory: React.FC = () => {
               <div className="absolute z-10 mt-1 w-full rounded-md bg-white shadow-lg border border-gray-200 max-h-60 overflow-y-auto">
                 <ul className="py-1">
                   {/* Create New Option (Admin Only) */}
-                  {user?.role === 'admin' && (
+                  {checkPermission('manage_supplies') && (
                     <li 
                       onClick={handleOpenCreateSupply}
                       className="px-3 py-2.5 hover:bg-blue-50 cursor-pointer text-sm text-blue-600 font-medium border-b border-gray-100 flex items-center gap-2"
