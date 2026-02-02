@@ -49,7 +49,7 @@ export interface InventoryItem {
   category2?: string; // Subcategoria ou detalhe adicional
   lastUpdated: number;
   lastUpdatedBy: string;
-  unitPrice?: number;
+  unitPrice?: number | null; // Allow null for Firestore compatibility
 }
 
 export interface InventoryLog {

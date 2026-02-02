@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Minus, Search, Package, LayoutGrid, List, FileSpreadsheet, Pencil, Trash2, Check, DollarSign, Filter, X, Tag } from 'lucide-react';
+import { ArrowLeft, Plus, Minus, Search, Package, LayoutGrid, List, FileSpreadsheet, Pencil, Trash2, Check, DollarSign, Filter, X, Tag, Info } from 'lucide-react';
 import { useAuth } from '../services/authContext';
 import { getInventory, getProjectById, addInventoryItem, updateInventoryQuantity, deleteInventoryItem, getSupplies, updateInventoryItem, addSupply } from '../services/firestoreService';
 import { exportProjectInventoryToExcel } from '../services/excelService';
@@ -110,7 +110,7 @@ const ProjectInventory: React.FC = () => {
       unit: supply.unit,
       category: supply.category,
       category2: '', // Reset secondary category as it's specific to the project item
-      price: supply.price ? supply.price.toString() : ''
+      price: '' // Don't autofill price, user should input the actual paid price
     });
     setIsComboboxOpen(false);
   };
@@ -157,9 +157,10 @@ const ProjectInventory: React.FC = () => {
         name: selectedSupply.name,
         unit: selectedSupply.unit,
         category: selectedSupply.category, // Categoria do Insumo (Padrão)
-        category2: newItem.category2, // Subcategoria (Específica da Obra)
+        category2: newItem.category2 || '', // Subcategoria (Específica da Obra)
         quantity: newItem.quantity,
-        unitPrice: newItem.price ? parseFloat(newItem.price) : undefined,
+        // Send null instead of undefined for Firestore compatibility
+        unitPrice: newItem.price ? parseFloat(newItem.price) : null, 
         lastUpdated: Date.now(),
         lastUpdatedBy: user.email || 'unknown'
       },
@@ -229,7 +230,8 @@ const ProjectInventory: React.FC = () => {
       name: editItemData.name,
       category: editItemData.category,
       category2: editItemData.category2,
-      unitPrice: editItemData.unitPrice ? parseFloat(editItemData.unitPrice) : undefined
+      // Send null instead of undefined to prevent "Unsupported field value: undefined" error
+      unitPrice: editItemData.unitPrice ? parseFloat(editItemData.unitPrice) : null
     });
     setIsEditItemModalOpen(false);
     fetchDetails();
@@ -260,7 +262,7 @@ const ProjectInventory: React.FC = () => {
     s.name.toLowerCase().includes(supplySearchTerm.toLowerCase())
   );
 
-  const formatCurrency = (val?: number) => {
+  const formatCurrency = (val?: number | null) => {
     if (val === undefined || val === null) return '-';
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
@@ -377,7 +379,7 @@ const ProjectInventory: React.FC = () => {
                                <Tag size={10} /> {item.category2}
                              </span>
                           )}
-                          {item.unitPrice && (
+                          {item.unitPrice !== undefined && item.unitPrice !== null && (
                             <span className="text-xs text-gray-500 mt-1">
                               Pago: {formatCurrency(item.unitPrice)} / {item.unit}
                             </span>
@@ -459,8 +461,8 @@ const ProjectInventory: React.FC = () => {
                                {item.category}
                              </span>
                              {item.category2 && (
-                               <span className="text-xs text-gray-500 ml-1">
-                                 ↳ {item.category2}
+                               <span className="text-xs text-gray-500 ml-1 flex items-center gap-1">
+                                 <Tag size={10} /> {item.category2}
                                </span>
                              )}
                           </div>
@@ -598,26 +600,22 @@ const ProjectInventory: React.FC = () => {
             )}
             
             {selectedSupply && (
-              <div className="mt-2 p-2 rounded border border-blue-100 bg-blue-50">
-                <div className="text-xs text-blue-800 flex items-center mb-1">
+              <div className="mt-2 p-3 rounded border border-blue-100 bg-blue-50 flex flex-col gap-1">
+                <div className="text-xs text-blue-800 flex items-center font-semibold">
                   <Check size={12} className="mr-1" />
-                  Insumo Selecionado: <b>{selectedSupply.name}</b> ({selectedSupply.unit})
+                  Insumo Selecionado: {selectedSupply.name}
                 </div>
-                <div className="text-xs text-gray-500">
-                  Preço Base (Catálogo): {selectedSupply.price ? formatCurrency(selectedSupply.price) : 'Não definido'}
+                <div className="flex justify-between items-center text-xs text-blue-600">
+                   <span>Categoria: {selectedSupply.category}</span>
+                   <span>Unidade: {selectedSupply.unit}</span>
+                </div>
+                <div className="mt-1 pt-1 border-t border-blue-100 text-xs text-gray-600 flex items-center gap-1">
+                  <Info size={12} />
+                  Preço de Referência (Catálogo): <b>{selectedSupply.price ? formatCurrency(selectedSupply.price) : 'Não definido'}</b>
                 </div>
               </div>
             )}
           </div>
-
-          {selectedSupply && (
-             <Input 
-                label="Categoria (Do Insumo)" 
-                value={selectedSupply.category} 
-                disabled 
-                className="bg-gray-100"
-             />
-          )}
 
           <div className="grid grid-cols-2 gap-4">
              <Input 
@@ -636,7 +634,7 @@ const ProjectInventory: React.FC = () => {
           
           <div className="relative">
             <Input 
-              label="Valor Unitário Real (Nota Fiscal)" 
+              label="Valor Real Pago (Nota Fiscal)" 
               type="number"
               step="0.01" 
               placeholder="0.00"
@@ -647,7 +645,9 @@ const ProjectInventory: React.FC = () => {
             <div className="absolute left-3 top-[34px] text-gray-400 pointer-events-none">
               <DollarSign size={14} />
             </div>
-            <p className="text-xs text-gray-500 mt-1">Este é o valor efetivamente pago pelo item nesta obra.</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Informe o valor exato pago por unidade nesta compra.
+            </p>
           </div>
         </div>
       </Modal>
