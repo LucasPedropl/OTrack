@@ -1,11 +1,11 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Minus, Search, Package, LayoutGrid, List, FileSpreadsheet } from 'lucide-react';
+import { ArrowLeft, Plus, Minus, Search, Package, LayoutGrid, List, FileSpreadsheet, Pencil, Trash2, Check, DollarSign } from 'lucide-react';
 import { useAuth } from '../services/authContext';
-import { getInventory, getProjectById, addInventoryItem, updateInventoryQuantity, deleteInventoryItem } from '../services/firestoreService';
+import { getInventory, getProjectById, addInventoryItem, updateInventoryQuantity, deleteInventoryItem, getSupplies, updateInventoryItem, addSupply } from '../services/firestoreService';
 import { exportProjectInventoryToExcel } from '../services/excelService';
-import { Project, InventoryItem } from '../types';
+import { Project, InventoryItem, Supply } from '../types';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
@@ -18,6 +18,7 @@ const ProjectInventory: React.FC = () => {
   
   const [project, setProject] = useState<Project | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [supplies, setSupplies] = useState<Supply[]>([]);
   const [loading, setLoading] = useState(true);
   
   // UI State
@@ -26,22 +27,41 @@ const ProjectInventory: React.FC = () => {
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isEditItemModalOpen, setIsEditItemModalOpen] = useState(false);
+  const [isCreateSupplyModalOpen, setIsCreateSupplyModalOpen] = useState(false); // Nested modal
+
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   
-  // Form State
-  const [newItem, setNewItem] = useState({ name: '', quantity: 0, unit: 'unid', category: 'Geral' });
+  // Form State - Add Item
+  const [newItem, setNewItem] = useState({ name: '', quantity: 0, unit: '', category: '', price: '' });
+  const [selectedSupply, setSelectedSupply] = useState<Supply | null>(null);
+  
+  // Form State - Edit Item
+  const [editItemData, setEditItemData] = useState({ name: '', category: '', unitPrice: '' });
+
+  // Form State - Create New Supply (Nested)
+  const [newSupplyData, setNewSupplyData] = useState({ name: '', unit: '', category: '', price: '' });
+
+  // Stock Update State
   const [updateAmount, setUpdateAmount] = useState<number>(0);
   const [updateType, setUpdateType] = useState<'in' | 'out'>('in');
+
+  // Search/Combobox State
+  const [supplySearchTerm, setSupplySearchTerm] = useState('');
+  const [isComboboxOpen, setIsComboboxOpen] = useState(false);
+  const comboboxRef = useRef<HTMLDivElement>(null);
 
   const fetchDetails = async () => {
     if (!projectId) return;
     setLoading(true);
-    const [proj, inv] = await Promise.all([
+    const [proj, inv, supp] = await Promise.all([
         getProjectById(projectId),
-        getInventory(projectId)
+        getInventory(projectId),
+        getSupplies()
     ]);
     setProject(proj);
     setInventory(inv);
+    setSupplies(supp);
     setLoading(false);
   };
 
@@ -49,13 +69,74 @@ const ProjectInventory: React.FC = () => {
     fetchDetails();
   }, [projectId]);
 
+  // Click outside listener for combobox
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (comboboxRef.current && !comboboxRef.current.contains(event.target as Node)) {
+        setIsComboboxOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSupplySelect = (supply: Supply) => {
+    setSelectedSupply(supply);
+    setSupplySearchTerm(supply.name);
+    setNewItem({
+      ...newItem,
+      name: supply.name,
+      unit: supply.unit,
+      category: supply.category,
+      price: supply.price ? supply.price.toString() : ''
+    });
+    setIsComboboxOpen(false);
+  };
+
+  const handleOpenCreateSupply = () => {
+    setIsComboboxOpen(false);
+    setNewSupplyData({ name: supplySearchTerm, unit: '', category: '', price: '' });
+    setIsCreateSupplyModalOpen(true);
+  };
+
+  const handleCreateSupplySave = async () => {
+    if (!newSupplyData.name || !newSupplyData.unit) return;
+    try {
+      const payload = {
+        name: newSupplyData.name,
+        unit: newSupplyData.unit,
+        category: newSupplyData.category,
+        price: newSupplyData.price ? parseFloat(newSupplyData.price) : 0
+      };
+      const newSupply = await addSupply(payload);
+      setSupplies(prev => [...prev, newSupply]); // Optimistic update
+      
+      // Auto-select the newly created supply in the Add Item form
+      handleSupplySelect(newSupply);
+      
+      setIsCreateSupplyModalOpen(false);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao criar insumo.');
+    }
+  };
+
   const handleAddItem = async () => {
     if (!projectId || !project || !user) return;
     
+    if (!selectedSupply) {
+      alert("Selecione um insumo.");
+      return;
+    }
+
     await addInventoryItem(
       {
-        ...newItem,
         projectId,
+        name: selectedSupply.name,
+        unit: selectedSupply.unit,
+        category: selectedSupply.category,
+        quantity: newItem.quantity,
+        unitPrice: newItem.price ? parseFloat(newItem.price) : undefined,
         lastUpdated: Date.now(),
         lastUpdatedBy: user.email || 'unknown'
       },
@@ -64,7 +145,10 @@ const ProjectInventory: React.FC = () => {
     );
 
     setIsAddModalOpen(false);
-    setNewItem({ name: '', quantity: 0, unit: 'unid', category: 'Geral' });
+    // Reset form
+    setNewItem({ name: '', quantity: 0, unit: '', category: '', price: '' });
+    setSelectedSupply(null);
+    setSupplySearchTerm('');
     fetchDetails();
   };
 
@@ -104,12 +188,49 @@ const ProjectInventory: React.FC = () => {
     fetchDetails();
   };
 
+  const handleEditItemOpen = (item: InventoryItem) => {
+    setSelectedItem(item);
+    setEditItemData({
+      name: item.name,
+      category: item.category,
+      unitPrice: item.unitPrice ? item.unitPrice.toString() : ''
+    });
+    setIsEditItemModalOpen(true);
+  };
+
+  const handleEditItemSave = async () => {
+    if (!selectedItem) return;
+    await updateInventoryItem(selectedItem.id, {
+      name: editItemData.name,
+      category: editItemData.category,
+      unitPrice: editItemData.unitPrice ? parseFloat(editItemData.unitPrice) : undefined
+    });
+    setIsEditItemModalOpen(false);
+    fetchDetails();
+  };
+
+  const handleDeleteItem = async (item: InventoryItem) => {
+    if(window.confirm(`Tem certeza que deseja remover "${item.name}" do estoque desta obra?`)) {
+      await deleteInventoryItem(item.id);
+      fetchDetails();
+    }
+  };
+
   const handleExportExcel = () => {
     if (project && inventory.length > 0) {
       exportProjectInventoryToExcel(project, inventory);
     } else {
       alert("Não há dados para exportar.");
     }
+  };
+
+  const filteredSupplies = supplies.filter(s => 
+    s.name.toLowerCase().includes(supplySearchTerm.toLowerCase())
+  );
+
+  const formatCurrency = (val?: number) => {
+    if (val === undefined || val === null) return '-';
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
 
   if (loading) return <div className="p-6">Carregando dados da obra...</div>;
@@ -128,7 +249,6 @@ const ProjectInventory: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-3">
-          {/* View Toggle */}
           <div className="flex items-center bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
             <button 
               onClick={() => setViewMode('grid')}
@@ -163,13 +283,20 @@ const ProjectInventory: React.FC = () => {
             // GRID VIEW
             <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
               {inventory.map((item) => (
-                <Card key={item.id} className="relative overflow-hidden">
+                <Card key={item.id} className="relative overflow-hidden group">
                   <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="font-bold text-gray-800 text-lg">{item.name}</h3>
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded mt-1 inline-block">
-                          {item.category}
-                        </span>
+                        <div className="flex flex-col gap-1 mt-1">
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded inline-block w-fit">
+                            {item.category}
+                          </span>
+                          {item.unitPrice && (
+                            <span className="text-xs text-gray-500">
+                              {formatCurrency(item.unitPrice)} / {item.unit}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className="text-2xl font-bold text-primary">
@@ -195,6 +322,16 @@ const ProjectInventory: React.FC = () => {
                     </Button>
                   </div>
                   
+                  {/* Action Buttons (Edit/Delete) */}
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 p-1 rounded backdrop-blur-sm">
+                    <button onClick={() => handleEditItemOpen(item)} className="p-1.5 text-gray-500 hover:text-primary hover:bg-gray-100 rounded">
+                      <Pencil size={14} />
+                    </button>
+                    <button onClick={() => handleDeleteItem(item)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+
                   <div className="mt-3 text-xs text-gray-400 text-center">
                     Última att: {new Date(item.lastUpdated).toLocaleDateString()}
                   </div>
@@ -210,6 +347,7 @@ const ProjectInventory: React.FC = () => {
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor Unit.</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qtd Atual</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Última Att</th>
                       <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
@@ -217,7 +355,7 @@ const ProjectInventory: React.FC = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {inventory.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50">
+                      <tr key={item.id} className="hover:bg-gray-50 group">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{item.name}</div>
                         </td>
@@ -226,15 +364,27 @@ const ProjectInventory: React.FC = () => {
                             {item.category}
                           </span>
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatCurrency(item.unitPrice)}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">
                           <div className="text-sm font-bold text-gray-900">{item.quantity} <span className="font-normal text-gray-500">{item.unit}</span></div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {new Date(item.lastUpdated).toLocaleDateString()}
-                          <div className="text-xs text-gray-400 max-w-[100px] truncate" title={item.lastUpdatedBy}>{item.lastUpdatedBy}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <div className="flex justify-center space-x-2">
+                          <div className="flex justify-center items-center space-x-2">
+                             {/* Edit/Delete for List View */}
+                             <div className="flex items-center mr-2 border-r border-gray-200 pr-2 space-x-1">
+                                <button onClick={() => handleEditItemOpen(item)} className="p-1 text-gray-400 hover:text-primary rounded">
+                                  <Pencil size={14} />
+                                </button>
+                                <button onClick={() => handleDeleteItem(item)} className="p-1 text-gray-400 hover:text-red-600 rounded">
+                                  <Trash2 size={14} />
+                                </button>
+                             </div>
+
                             <button 
                               onClick={() => openUpdateModal(item, 'out')}
                               className="p-1 rounded-full text-red-600 hover:bg-red-50 border border-red-200"
@@ -270,25 +420,84 @@ const ProjectInventory: React.FC = () => {
         <FileSpreadsheet size={24} />
       </button>
 
-      {/* Add Item Modal (Admin Only) */}
+      {/* Add Item Modal */}
       <Modal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        title="Adicionar Novo Item"
+        title="Adicionar Item ao Estoque"
         footer={
           <>
             <Button variant="ghost" onClick={() => setIsAddModalOpen(false)}>Cancelar</Button>
-            <Button onClick={handleAddItem}>Adicionar</Button>
+            <Button onClick={handleAddItem} disabled={!selectedSupply}>Adicionar</Button>
           </>
         }
       >
         <div className="space-y-4">
-          <Input 
-            label="Nome do Material" 
-            value={newItem.name} 
-            onChange={e => setNewItem({...newItem, name: e.target.value})}
-            placeholder="Ex: Cimento CP II"
-          />
+          <div ref={comboboxRef} className="relative">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Buscar Insumo
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 pl-9 text-sm text-gray-900 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="Digite para buscar..."
+                value={supplySearchTerm}
+                onChange={(e) => {
+                  setSupplySearchTerm(e.target.value);
+                  setIsComboboxOpen(true);
+                  if (!e.target.value) setSelectedSupply(null);
+                }}
+                onFocus={() => setIsComboboxOpen(true)}
+              />
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400 pointer-events-none" />
+            </div>
+            
+            {/* Dropdown Results */}
+            {isComboboxOpen && (
+              <div className="absolute z-10 mt-1 w-full rounded-md bg-white shadow-lg border border-gray-200 max-h-60 overflow-y-auto">
+                <ul className="py-1">
+                  {/* Create New Option (Admin Only) */}
+                  {user?.role === 'admin' && (
+                    <li 
+                      onClick={handleOpenCreateSupply}
+                      className="px-3 py-2.5 hover:bg-blue-50 cursor-pointer text-sm text-blue-600 font-medium border-b border-gray-100 flex items-center gap-2"
+                    >
+                      <Plus size={14} /> Cadastrar Novo: "{supplySearchTerm || 'Novo Insumo'}"
+                    </li>
+                  )}
+                  
+                  {filteredSupplies.length === 0 ? (
+                    <li className="px-3 py-2 text-sm text-gray-500 italic">
+                      Nenhum insumo encontrado.
+                    </li>
+                  ) : (
+                    filteredSupplies.map((supply) => (
+                      <li
+                        key={supply.id}
+                        onClick={() => handleSupplySelect(supply)}
+                        className={`px-3 py-2 cursor-pointer text-sm hover:bg-gray-50 flex justify-between items-center ${selectedSupply?.id === supply.id ? 'bg-gray-100' : ''}`}
+                      >
+                         <div>
+                           <span className="font-medium text-gray-900">{supply.name}</span>
+                           <span className="ml-2 text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{supply.category}</span>
+                         </div>
+                         {selectedSupply?.id === supply.id && <Check size={14} className="text-primary"/>}
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
+            )}
+            
+            {selectedSupply && (
+              <div className="mt-2 text-xs text-green-600 flex items-center bg-green-50 p-2 rounded border border-green-100">
+                <Check size={12} className="mr-1" />
+                Selecionado: <b>{selectedSupply.name}</b> ({selectedSupply.unit})
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
              <Input 
                label="Quantidade Inicial" 
@@ -296,23 +505,74 @@ const ProjectInventory: React.FC = () => {
                value={newItem.quantity} 
                onChange={e => setNewItem({...newItem, quantity: Number(e.target.value)})}
              />
-             <Input 
-               label="Unidade" 
-               value={newItem.unit} 
-               onChange={e => setNewItem({...newItem, unit: e.target.value})}
-               placeholder="sacos, kg, m..."
-             />
+             <div className="relative">
+                <Input 
+                  label="Valor Unitário (Opcional)" 
+                  type="number"
+                  step="0.01" 
+                  placeholder="0.00"
+                  className="pl-8"
+                  value={newItem.price} 
+                  onChange={e => setNewItem({...newItem, price: e.target.value})}
+                />
+                <div className="absolute left-3 top-[34px] text-gray-400 pointer-events-none">
+                  <DollarSign size={14} />
+                </div>
+             </div>
           </div>
-          <Input 
-            label="Categoria" 
-            value={newItem.category} 
-            onChange={e => setNewItem({...newItem, category: e.target.value})}
-            placeholder="Ex: Estrutural"
-          />
         </div>
       </Modal>
 
-      {/* Update Stock Modal */}
+      {/* Create New Supply Nested Modal */}
+      <Modal
+        isOpen={isCreateSupplyModalOpen}
+        onClose={() => setIsCreateSupplyModalOpen(false)}
+        title="Cadastrar Novo Insumo"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setIsCreateSupplyModalOpen(false)}>Cancelar</Button>
+            <Button onClick={handleCreateSupplySave}>Salvar e Selecionar</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+           <Input 
+             label="Nome do Insumo"
+             value={newSupplyData.name}
+             onChange={e => setNewSupplyData({...newSupplyData, name: e.target.value})}
+             autoFocus
+           />
+           <div className="grid grid-cols-2 gap-4">
+             <Input 
+               label="Categoria"
+               placeholder="Ex: Elétrica"
+               value={newSupplyData.category}
+               onChange={e => setNewSupplyData({...newSupplyData, category: e.target.value})}
+             />
+             <Input 
+               label="Unidade"
+               placeholder="Ex: un, m, kg"
+               value={newSupplyData.unit}
+               onChange={e => setNewSupplyData({...newSupplyData, unit: e.target.value})}
+             />
+           </div>
+           <div className="relative">
+             <Input 
+               label="Preço de Referência (Opcional)"
+               type="number"
+               step="0.01"
+               className="pl-8"
+               value={newSupplyData.price}
+               onChange={e => setNewSupplyData({...newSupplyData, price: e.target.value})}
+             />
+             <div className="absolute left-3 top-[34px] text-gray-400 pointer-events-none">
+                <DollarSign size={14} />
+             </div>
+           </div>
+        </div>
+      </Modal>
+
+      {/* Update Stock Modal (In/Out) */}
       <Modal
         isOpen={isUpdateModalOpen}
         onClose={() => setIsUpdateModalOpen(false)}
@@ -357,6 +617,45 @@ const ProjectInventory: React.FC = () => {
               <Plus size={20} />
             </button>
          </div>
+      </Modal>
+
+      {/* Edit Item Details Modal */}
+      <Modal
+        isOpen={isEditItemModalOpen}
+        onClose={() => setIsEditItemModalOpen(false)}
+        title="Editar Item"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setIsEditItemModalOpen(false)}>Cancelar</Button>
+            <Button onClick={handleEditItemSave}>Salvar</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input 
+             label="Nome" 
+             value={editItemData.name} 
+             onChange={e => setEditItemData({...editItemData, name: e.target.value})} 
+          />
+          <Input 
+             label="Categoria" 
+             value={editItemData.category} 
+             onChange={e => setEditItemData({...editItemData, category: e.target.value})} 
+          />
+          <div className="relative">
+             <Input 
+               label="Valor Unitário" 
+               type="number"
+               step="0.01"
+               className="pl-8"
+               value={editItemData.unitPrice} 
+               onChange={e => setEditItemData({...editItemData, unitPrice: e.target.value})} 
+             />
+             <div className="absolute left-3 top-[34px] text-gray-400 pointer-events-none">
+                <DollarSign size={14} />
+             </div>
+          </div>
+        </div>
       </Modal>
     </div>
   );

@@ -3,9 +3,31 @@ export interface User {
   uid: string;
   email: string;
   name: string;
-  role: 'admin' | 'user';
+  roleId: string; // ID of the UserRole
+  role?: 'admin' | 'user'; // Deprecated, kept for backward compatibility/super-admin check
   assignedProjects: string[]; // List of Project IDs this user can access
-  projectOrder?: string[]; // Preference for sidebar order
+  projectOrder?: string[]; 
+}
+
+export interface UserRole {
+  id: string;
+  name: string;
+  description?: string;
+  permissions: {
+    // Admin / Global
+    view_dashboard: boolean;
+    manage_users: boolean;
+    manage_roles: boolean;
+    manage_supplies: boolean;
+    manage_projects: boolean; // Create/Delete projects
+    
+    // Project Specific
+    access_all_projects: boolean; // If true, ignores assignedProjects
+    inventory_view: boolean;
+    inventory_add: boolean;
+    inventory_edit: boolean;
+    inventory_delete: boolean;
+  }
 }
 
 export interface Project {
@@ -21,24 +43,33 @@ export interface InventoryItem {
   projectId: string;
   name: string;
   quantity: number;
-  unit: string; // e.g., 'kg', 'm2', 'unid'
+  unit: string; 
   minQuantity?: number;
   category: string;
   lastUpdated: number;
   lastUpdatedBy: string;
+  unitPrice?: number;
 }
 
 export interface InventoryLog {
   id: string;
   itemId: string;
-  itemName: string; // Added for display history
+  itemName: string; 
   projectId: string;
-  projectName: string; // Added for display history
+  projectName: string; 
   userId: string;
   userEmail: string;
   type: 'in' | 'out';
-  quantityChanged: number; // The amount added or removed
-  currentStock: number; // The stock level AFTER the change
+  quantityChanged: number; 
+  currentStock: number; 
   timestamp: number;
   notes?: string;
+}
+
+export interface Supply {
+  id: string;
+  name: string;
+  unit: string;
+  category: string;
+  price?: number;
 }

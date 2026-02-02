@@ -15,13 +15,40 @@ import {
   setDoc
 } from "firebase/firestore";
 import { db } from "./firebaseConfig";
-import { Project, User, InventoryItem, InventoryLog } from "../types";
+import { Project, User, InventoryItem, InventoryLog, Supply, UserRole } from "../types";
+
+// --- Roles (Tipos de Usuário) ---
+
+export const getRoles = async (): Promise<UserRole[]> => {
+  const querySnapshot = await getDocs(collection(db, "roles"));
+  return querySnapshot.docs.map(d => ({ ...d.data(), id: d.id } as UserRole));
+};
+
+export const createRole = async (roleData: Omit<UserRole, 'id'>) => {
+  const docRef = await addDoc(collection(db, "roles"), roleData);
+  return { ...roleData, id: docRef.id };
+};
+
+export const updateRole = async (id: string, data: Partial<UserRole>) => {
+  const ref = doc(db, "roles", id);
+  await updateDoc(ref, data);
+};
+
+export const deleteRole = async (id: string) => {
+  await deleteDoc(doc(db, "roles", id));
+};
+
+export const getRoleById = async (id: string): Promise<UserRole | null> => {
+  const docRef = doc(db, "roles", id);
+  const docSnap = await getDoc(docRef);
+  if (!docSnap.exists()) return null;
+  return { ...docSnap.data(), id: docSnap.id } as UserRole;
+};
 
 // --- Users ---
 
 export const createUser = async (userData: Omit<User, 'uid'>) => {
   // In a real app with Firebase Auth, you'd create the Auth user first.
-  // Here we just store the user profile in Firestore for our custom logic.
   const docRef = await addDoc(collection(db, "users"), userData);
   return { ...userData, uid: docRef.id };
 };
@@ -38,9 +65,6 @@ export const updateUser = async (uid: string, data: Partial<User>) => {
 
 export const updateUserProjectOrder = async (uid: string, projectOrder: string[]) => {
   const userRef = doc(db, "users", uid);
-  // Using setDoc with merge: true ensures that if the user (e.g. bootstrap admin) 
-  // doesn't fully exist in 'users' collection yet, the preference is still saved 
-  // without erroring out, preserving other fields if they exist.
   await setDoc(userRef, { projectOrder }, { merge: true });
 };
 
@@ -79,9 +103,8 @@ export const getProjectById = async (id: string): Promise<Project | null> => {
 };
 
 export const getProjectsForUser = async (projectIds: string[]): Promise<Project[]> => {
-  if (projectIds.length === 0) return [];
-  // Firestore 'in' query supports up to 10 items. For simplicity here assuming < 10.
-  // In production, we'd loop or fetch all and filter client side if list is huge.
+  if (!projectIds || projectIds.length === 0) return [];
+  // Firestore 'in' query supports up to 10 items.
   const q = query(collection(db, "projects"), where("__name__", "in", projectIds));
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Project));
@@ -112,7 +135,6 @@ export const addInventoryItem = async (
 ) => {
   const docRef = await addDoc(collection(db, "inventory"), item);
   
-  // Log the creation if quantity > 0 and context is provided
   if (item.quantity > 0 && projectName && user) {
     await addDoc(collection(db, "inventory_logs"), {
       itemId: docRef.id,
@@ -121,7 +143,7 @@ export const addInventoryItem = async (
       projectName: projectName,
       userId: user.uid,
       userEmail: user.email,
-      type: 'in', // Initial stock is considered 'in'
+      type: 'in', 
       quantityChanged: item.quantity,
       currentStock: item.quantity,
       timestamp: Date.now(),
@@ -130,6 +152,12 @@ export const addInventoryItem = async (
   }
 
   return { ...item, id: docRef.id };
+};
+
+// Generic update for item details (not just quantity)
+export const updateInventoryItem = async (id: string, data: Partial<InventoryItem>) => {
+  const itemRef = doc(db, "inventory", id);
+  await updateDoc(itemRef, data);
 };
 
 export const updateInventoryQuantity = async (
@@ -168,18 +196,37 @@ export const deleteInventoryItem = async (id: string) => {
   await deleteDoc(doc(db, "inventory", id));
 };
 
+// --- Supplies (Catálogo Global) ---
+
+export const getSupplies = async (): Promise<Supply[]> => {
+  const q = query(collection(db, "supplies"), orderBy("name"));
+  const querySnapshot = await getDocs(q);
+  return querySnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Supply));
+};
+
+export const addSupply = async (supply: Omit<Supply, 'id'>) => {
+  const docRef = await addDoc(collection(db, "supplies"), supply);
+  return { ...supply, id: docRef.id };
+};
+
+export const updateSupply = async (id: string, data: Partial<Supply>) => {
+  const ref = doc(db, "supplies", id);
+  await updateDoc(ref, data);
+};
+
+export const deleteSupply = async (id: string) => {
+  await deleteDoc(doc(db, "supplies", id));
+};
+
 // --- Logs / History ---
 
 export const getInventoryLogs = async (user: User): Promise<InventoryLog[]> => {
   let q;
   
-  if (user.role === 'admin') {
-    // Admin sees all logs, ordered by newest. 
-    // Increased limit to support filtering better on client side for this demo
+  if (user.role === 'admin') { // Or check permissions
     q = query(collection(db, "inventory_logs"), orderBy("timestamp", "desc"), limit(200));
   } else {
-    // User sees logs only for assigned projects
-    if (user.assignedProjects.length === 0) return [];
+    if (!user.assignedProjects || user.assignedProjects.length === 0) return [];
     
     q = query(
       collection(db, "inventory_logs"), 
@@ -199,8 +246,6 @@ export const clearAllLogs = async () => {
   
   if (snapshot.empty) return;
 
-  // Firestore allows max 500 operations per batch. 
-  // We handle this by chunking the deletes.
   const CHUNK_SIZE = 500;
   for (let i = 0; i < snapshot.docs.length; i += CHUNK_SIZE) {
     const batch = writeBatch(db);

@@ -4,7 +4,8 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, FolderKanban, X, Box, ChevronLeft, ChevronRight, 
-  Building2, History, Settings, MoreHorizontal, Pencil, Download, Trash2, GripVertical
+  Building2, History, Settings, MoreHorizontal, Pencil, Download, Trash2, GripVertical,
+  PackageOpen, Shield
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -167,7 +168,7 @@ const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
 // -- Main Sidebar Component --
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  const { user, updateUserData } = useAuth();
+  const { user, updateUserData, checkPermission } = useAuth();
   const { lastUpdate, triggerUpdate } = useProjectContext();
   const location = useLocation();
   const path = location.pathname;
@@ -202,7 +203,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       if (!user) return;
       try {
         let data: Project[] = [];
-        if (user.role === 'admin') {
+        // Use permissions to decide whether to fetch all or assigned
+        if (checkPermission('access_all_projects')) {
           data = await getProjects();
         } else {
           data = await getProjectsForUser(user.assignedProjects);
@@ -223,7 +225,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       }
     };
     fetchProjects();
-  }, [user, lastUpdate]);
+  }, [user, lastUpdate]); 
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -297,10 +299,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     triggerUpdate();
   };
 
-  const adminLinks = [
-    { href: '/admin/dashboard', label: 'Painel Geral', icon: LayoutDashboard },
-    { href: '/admin/users', label: 'Gerenciar Usuários', icon: Users },
-    { href: '/admin/history', label: 'Histórico Global', icon: History },
+  const allAdminLinks = [
+    { href: '/admin/dashboard', label: 'Painel Geral', icon: LayoutDashboard, permission: 'view_dashboard' },
+    { href: '/admin/users', label: 'Gerenciar Usuários', icon: Users, permission: 'manage_users' },
+    { href: '/admin/roles', label: 'Tipos de Usuário', icon: Shield, permission: 'manage_roles' },
+    { href: '/admin/supplies', label: 'Insumos', icon: PackageOpen, permission: 'manage_supplies' },
+    { href: '/admin/history', label: 'Histórico Global', icon: History, permission: 'view_dashboard' },
   ];
 
   const userLinks = [
@@ -308,7 +312,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     { href: '/user/history', label: 'Meu Histórico', icon: History },
   ];
 
-  const mainLinks = user?.role === 'admin' ? adminLinks : userLinks;
+  let mainLinks = [];
+
+  // Filter admin links based on permissions
+  if (checkPermission('view_dashboard')) {
+    mainLinks = allAdminLinks.filter(link => 
+      // If link has a specific permission requirement, check it. Otherwise allow.
+      // @ts-ignore
+      link.permission ? checkPermission(link.permission) : true
+    );
+  } else {
+    mainLinks = userLinks;
+  }
 
   return (
     <>
@@ -422,19 +437,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               left: Math.min(menuConfig.x, window.innerWidth - 200) 
             }}
           >
-            {user?.role === 'admin' && (
-              <button onClick={handleEditClick} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                <Pencil size={14} /> Editar
-              </button>
+            {/* Permission Check for Edit/Delete actions */}
+            {checkPermission('manage_projects') && (
+              <>
+                <button onClick={handleEditClick} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                  <Pencil size={14} /> Editar
+                </button>
+                <button onClick={handleDeleteClick} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50 mt-1">
+                  <Trash2 size={14} /> Excluir
+                </button>
+              </>
             )}
             <button onClick={handleDownloadClick} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
               <Download size={14} /> Baixar Planilha
             </button>
-            {user?.role === 'admin' && (
-              <button onClick={handleDeleteClick} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50 mt-1">
-                <Trash2 size={14} /> Excluir
-              </button>
-            )}
           </div>
         </>,
         document.body
